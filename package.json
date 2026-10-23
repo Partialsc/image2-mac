@@ -9,7 +9,7 @@
     "mock:api": "node scripts/mock-image-api.mjs",
     "build": "tsc -b && vite build",
     "build:desktop": "npm run build && electron-builder --win portable",
-    "build:desktop:mac": "npm run build && electron-builder --mac",
+    "build:desktop:mac": "npm run build && electron-builder --mac --publish never",
     "deploy:cf": "npm run build && wrangler deploy",
     "preview": "vite preview",
     "test": "vitest run",
@@ -75,6 +75,7 @@
       "icon": "build/icon.png",
       "category": "public.app-category.graphics-design",
       "identity": "-",
+      "hardenedRuntime": false,
       "target": [
         {
           "target": "dmg",
