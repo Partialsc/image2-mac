@@ -384,6 +384,35 @@ npm run build
 
 </details>
 
+<details>
+<summary><strong>🖥️ 方式五：桌面版（Windows / macOS）</strong></summary>
+
+基于 Electron 打包的桌面版本，数据同样纯本地存储，API 配置（含自定义中转站 Base URL 与 Key）在应用内「设置 → API 配置」中填写，与 Web 版操作一致。
+
+**Windows（便携版，需在 Windows 上构建）：**
+
+```bash
+npm ci
+npm run build:desktop
+```
+
+产物：`release/ChatGPT-Image-Playground-Portable.exe`。
+
+**macOS（DMG，需在 macOS 上构建）：**
+
+```bash
+npm ci
+npm run build:desktop:mac
+```
+
+产物：`release/ChatGPT-Image-Playground-mac-<arch>-<version>.dmg`（Apple Silicon `arm64` 与 Intel `x64` 各一份，要求 macOS 12+）。
+
+> ⚠️ macOS 的 DMG 必须在 macOS 系统上打包（依赖 `hdiutil` 等 system 工具，Windows/Linux 上无法交叉构建）。没有 Mac 设备时，可使用仓库自带的 GitHub Actions 工作流 `.github/workflows/mac-build.yml`：推送代码后手动触发（Actions → Build macOS DMG → Run workflow）或推送 `v*` 标签，构建完成后在该次运行页面底部 Artifacts 处下载 DMG。
+
+> ⚠️ DMG 未经过 Apple Developer 证书签名（仅 ad-hoc 签名），首次打开如被 Gatekeeper 拦截，请右键点击应用 →「打开」，或在「系统设置 → 隐私与安全性」中放行。
+
+</details>
+
 ---
 
 ## 🛠️ URL 传参快速填充

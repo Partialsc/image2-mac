@@ -9,7 +9,7 @@ import { installMobileViewportGuards } from './lib/viewport'
 
 installMobileViewportGuards()
 
-if ('serviceWorker' in navigator) {
+if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
   if (import.meta.env.PROD) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch((error) => {

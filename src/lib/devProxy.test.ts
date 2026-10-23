@@ -36,4 +36,10 @@ describe('buildApiUrl', () => {
       'http://api.example.com/v1/responses',
     )
   })
+
+  it('uses an absolute endpoint URL directly', () => {
+    expect(buildApiUrl('https://api.example.com/v1', 'https://jobs.example.com/api/image/jobs')).toBe(
+      'https://jobs.example.com/api/image/jobs',
+    )
+  })
 })

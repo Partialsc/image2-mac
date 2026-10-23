@@ -3,10 +3,13 @@
   "private": true,
   "version": "0.7.1",
   "type": "module",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
     "mock:api": "node scripts/mock-image-api.mjs",
     "build": "tsc -b && vite build",
+    "build:desktop": "npm run build && electron-builder --win portable",
+    "build:desktop:mac": "npm run build && electron-builder --mac",
     "deploy:cf": "npm run build && wrangler deploy",
     "preview": "vite preview",
     "test": "vitest run",
@@ -34,6 +37,8 @@
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.4.1",
     "autoprefixer": "^10.4.21",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
@@ -41,5 +46,48 @@
     "vite": "^6.3.2",
     "vitest": "^4.1.5",
     "wrangler": "^4.96.0"
+  },
+  "build": {
+    "appId": "top.vibelearning.gptimageplayground",
+    "productName": "GPT Image Playground",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "build/icon.ico"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ChatGPT-Image-Playground-Portable.exe"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.graphics-design",
+      "identity": "-",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ChatGPT-Image-Playground-mac-${arch}-${version}.dmg"
+    },
+    "dmg": {
+      "backgroundColor": "#f5f5f7"
+    }
   }
 }

@@ -18,12 +18,20 @@ import { shouldUseApiProxy } from './devProxy'
 import { normalizeStreamPartialImages, parseDefaultApiUrl } from './defaultApiUrl'
 import { readRuntimeEnv } from './runtimeEnv'
 import { isImportableConfigUrl } from './customProviderConfigUrl'
+import {
+  createVibeLearningProfile,
+  VIBELEARNING_BASE_URL,
+  VIBELEARNING_PROFILE_ID,
+  VIBELEARNING_PROVIDER,
+  VIBELEARNING_PROVIDER_ID,
+} from './vibeLearning'
 
 const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1'
 const RAW_DEFAULT_API_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL)
 const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_AVAILABLE) === 'true'
 const DOCKER_DEPLOYMENT = readRuntimeEnv(import.meta.env.VITE_DOCKER_DEPLOYMENT) === 'true'
 const SHOW_DEFAULT_CONFIG_ONLY = readRuntimeEnv(import.meta.env.VITE_SHOW_DEFAULT_CONFIG_ONLY) === 'true'
+const VIBELEARNING_PRESET = readRuntimeEnv(import.meta.env.VITE_VIBELEARNING_PRESET) === 'true'
 const DEFAULT_API_URL_PATCH = isImportableConfigUrl(RAW_DEFAULT_API_URL)
   ? null
   : parseDefaultApiUrl(RAW_DEFAULT_API_URL || (DOCKER_DEPLOYMENT && DEFAULT_OPENAI_API_PROXY ? '' : OPENAI_DEFAULT_BASE_URL))
@@ -141,7 +149,7 @@ function normalizeRequestMethod(value: unknown, fallback: CustomProviderRequestM
 }
 
 function normalizeContentType(value: unknown, fallback: CustomProviderContentType = 'json'): CustomProviderContentType {
-  return value === 'multipart' ? 'multipart' : fallback
+  return value === 'json' || value === 'multipart' ? value : fallback
 }
 
 function normalizeBodyTemplate(value: unknown, fallback: Record<string, unknown>): Record<string, unknown> {
@@ -453,6 +461,14 @@ function normalizeProviderDrafts(input: unknown, customProviderIds: Set<string>)
   return entries.length ? Object.fromEntries(entries) : undefined
 }
 
+// 预设模式下 VibeLearning 作为内置服务商始终可用（例如导入配置后也不丢失），
+// 但不干预任何用户设置——API Key 由用户自行填写并保存。
+function ensureVibeLearningProvider(customProviders: CustomProviderDefinition[]): CustomProviderDefinition[] {
+  if (!VIBELEARNING_PRESET) return customProviders
+  if (customProviders.some((provider) => provider.id === VIBELEARNING_PROVIDER_ID)) return customProviders
+  return [VIBELEARNING_PROVIDER, ...customProviders]
+}
+
 export function normalizeApiProfile(input: unknown, fallback?: Partial<ApiProfile>, customProviderIds = new Set<string>()): ApiProfile {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const rawProvider = typeof record.provider === 'string' ? record.provider : ''
@@ -500,7 +516,7 @@ function validateImportedProfileRecord(input: unknown) {
 
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
-  const customProviders = normalizeCustomProviderDefinitions(record.customProviders)
+  const customProviders = ensureVibeLearningProvider(normalizeCustomProviderDefinitions(record.customProviders))
   const customProviderIds = new Set(customProviders.map((provider) => provider.id))
   const legacyApiMode: ApiMode = record.apiMode === 'responses' ? 'responses' : 'images'
   const legacyProfile = createDefaultOpenAIProfile({
@@ -531,7 +547,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     ? record.agentImageProfileId
     : active.id
 
-  return {
+  const normalized: AppSettings = {
     baseUrl: active.baseUrl,
     apiKey: active.apiKey,
     model: active.model,
@@ -561,6 +577,8 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     profiles,
     activeProfileId,
   }
+
+  return normalized
 }
 
 export function getAgentTextApiProfile(settings: Partial<AppSettings> | unknown): ApiProfile | null {
@@ -654,6 +672,7 @@ export function getActiveApiProfile(settings: Partial<AppSettings> | unknown): A
   const record = settings && typeof settings === 'object' ? settings as Record<string, unknown> : {}
   const normalized = normalizeSettings(settings)
   const profile = normalized.profiles.find((p) => p.id === normalized.activeProfileId) ?? normalized.profiles[0] ?? createDefaultOpenAIProfile()
+
   const apiMode = profile.provider === 'openai' && (record.apiMode === 'images' || record.apiMode === 'responses')
     ? record.apiMode
     : profile.apiMode
@@ -695,11 +714,25 @@ function isDefaultOpenAIProfile(profile: ApiProfile): boolean {
     profile.streamPartialImages === DEFAULT_STREAM_PARTIAL_IMAGES
 }
 
+function isDefaultVibeLearningProfile(profile: ApiProfile): boolean {
+  return profile.id === VIBELEARNING_PROFILE_ID &&
+    profile.provider === VIBELEARNING_PROVIDER_ID &&
+    profile.baseUrl === VIBELEARNING_BASE_URL &&
+    profile.apiKey === '' &&
+    profile.model === DEFAULT_IMAGES_MODEL
+}
+
 function hasOnlyDefaultProfiles(settings: AppSettings): boolean {
+  if (settings.profiles.length !== 1) return false
+  const profile = settings.profiles[0]
+  if (isDefaultVibeLearningProfile(profile)) {
+    return settings.activeProfileId === VIBELEARNING_PROFILE_ID &&
+      settings.customProviders.length === 1 &&
+      settings.customProviders[0].id === VIBELEARNING_PROVIDER_ID
+  }
   return settings.customProviders.length === 0 &&
-    settings.profiles.length === 1 &&
     settings.activeProfileId === DEFAULT_OPENAI_PROFILE_ID &&
-    isDefaultOpenAIProfile(settings.profiles[0])
+    isDefaultOpenAIProfile(profile)
 }
 
 function createImportedProfileId(provider: ApiProvider, usedIds: Set<string>): string {
@@ -849,7 +882,7 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   apiProxy: DEFAULT_OPENAI_API_PROXY,
   streamImages: DEFAULT_API_URL_PATCH?.streamImages ?? getDefaultStreamImages('openai', DEFAULT_API_URL_PATCH?.apiMode ?? 'images'),
   streamPartialImages: DEFAULT_API_URL_PATCH?.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES,
-  customProviders: [],
+  customProviders: VIBELEARNING_PRESET ? [VIBELEARNING_PROVIDER] : [],
   clearInputAfterSubmit: false,
   persistInputOnRestart: true,
   reuseTaskApiProfileTemporarily: false,
@@ -865,4 +898,8 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   agentApiConfigMode: 'off',
   agentTextProfileId: null,
   agentImageProfileId: null,
+  ...(VIBELEARNING_PRESET ? {
+    profiles: [createVibeLearningProfile('', DEFAULT_API_TIMEOUT)],
+    activeProfileId: VIBELEARNING_PROFILE_ID,
+  } : {}),
 })

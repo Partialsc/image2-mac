@@ -77,6 +77,82 @@ describe('default API URL env', () => {
     expect(DEFAULT_SETTINGS.baseUrl).toBe('')
     expect(DEFAULT_SETTINGS.profiles[0].baseUrl).toBe('')
   })
+
+  it('seeds the VibeLearning preset with an empty key for users to fill in', async () => {
+    vi.resetModules()
+    vi.stubEnv('VITE_VIBELEARNING_PRESET', 'true')
+
+    const { DEFAULT_SETTINGS, getActiveApiProfile, isDefaultConfigOnlyEnabled, normalizeSettings } = await import('./apiProfiles')
+
+    expect(DEFAULT_SETTINGS.customProviders[0]).toMatchObject({
+      id: 'vibelearning',
+      submit: { taskIdPath: 'job_id' },
+      poll: { statusPath: 'status', successValues: ['succeeded'] },
+    })
+    expect(DEFAULT_SETTINGS.profiles[0]).toMatchObject({
+      id: 'default-vibelearning',
+      provider: 'vibelearning',
+      baseUrl: 'https://api.vibelearning.top/v1',
+      apiKey: '',
+      model: 'gpt-image-2',
+    })
+    expect(DEFAULT_SETTINGS.activeProfileId).toBe('default-vibelearning')
+    expect(isDefaultConfigOnlyEnabled()).toBe(false)
+  })
+
+  it('keeps user-entered keys instead of overwriting them in preset mode', async () => {
+    vi.resetModules()
+    vi.stubEnv('VITE_VIBELEARNING_PRESET', 'true')
+
+    const { DEFAULT_SETTINGS, getActiveApiProfile, normalizeSettings } = await import('./apiProfiles')
+
+    const restored = normalizeSettings({
+      ...DEFAULT_SETTINGS,
+      profiles: [{
+        ...DEFAULT_SETTINGS.profiles[0],
+        apiKey: 'user-own-key',
+      }],
+    })
+    expect(restored.profiles[0]).toMatchObject({
+      id: 'default-vibelearning',
+      apiKey: 'user-own-key',
+    })
+    expect(getActiveApiProfile({
+      customProviders: DEFAULT_SETTINGS.customProviders,
+      profiles: [{ ...DEFAULT_SETTINGS.profiles[0], apiKey: 'user-own-key' }],
+      activeProfileId: 'default-vibelearning',
+    })).toMatchObject({
+      apiKey: 'user-own-key',
+      baseUrl: 'https://api.vibelearning.top/v1',
+      model: 'gpt-image-2',
+    })
+  })
+
+  it('keeps the built-in VibeLearning provider when importing settings in preset mode', async () => {
+    vi.resetModules()
+    vi.stubEnv('VITE_VIBELEARNING_PRESET', 'true')
+
+    const { DEFAULT_SETTINGS, mergeImportedSettings, normalizeSettings } = await import('./apiProfiles')
+
+    const merged = mergeImportedSettings(DEFAULT_SETTINGS, {
+      profiles: [{
+        id: 'imported-openai',
+        name: 'Imported OpenAI',
+        provider: 'openai',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'openai-key',
+        model: DEFAULT_IMAGES_MODEL,
+        timeout: 300,
+        apiMode: 'images',
+        codexCli: false,
+        apiProxy: false,
+      }],
+      activeProfileId: 'imported-openai',
+    })
+    expect(merged.profiles.map((profile) => profile.id)).toEqual(['imported-openai'])
+    expect(merged.customProviders.map((provider) => provider.id)).toEqual(['vibelearning'])
+    expect(normalizeSettings(merged).customProviders.map((provider) => provider.id)).toEqual(['vibelearning'])
+  })
 })
 
 describe('mergeImportedSettings', () => {

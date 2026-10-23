@@ -670,10 +670,17 @@ function createCustomProviderContext(opts: CallApiOptions, profile: ApiProfile) 
     params: opts.params,
     inputImages: {
       dataUrls: opts.inputImageDataUrls.length ? opts.inputImageDataUrls : undefined,
+      items: opts.inputImageDataUrls.length
+        ? opts.inputImageDataUrls.map((dataUrl, idx) => ({
+            data_url: dataUrl,
+            filename: `input-${idx + 1}.${dataUrl.match(/^data:image\/([^;]+)/)?.[1]?.replace('jpeg', 'jpg') ?? 'png'}`,
+          }))
+        : undefined,
       count: opts.inputImageDataUrls.length,
     },
     mask: {
       dataUrl: opts.maskDataUrl,
+      item: opts.maskDataUrl ? { data_url: opts.maskDataUrl, filename: 'mask.png' } : undefined,
     },
   }
 }
