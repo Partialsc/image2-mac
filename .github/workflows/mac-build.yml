@@ -27,7 +27,7 @@ jobs:
       - run: npm ci
       - run: npm run build:desktop:mac
         env:
-          VITE_VIBELEARNING_PRESET: 'true'
+          VITE_PRO_PRESET: 'true'
 
       - uses: actions/upload-artifact@v4
         with:

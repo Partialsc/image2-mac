@@ -25,6 +25,12 @@ import {
   VIBELEARNING_PROVIDER,
   VIBELEARNING_PROVIDER_ID,
 } from './vibeLearning'
+import {
+  createMultimodalProfiles,
+  isDefaultMultimodalProfile,
+  MULTIMODAL_DEFAULT_PROFILE_ID,
+  MULTIMODAL_MODELS,
+} from './multimodalPreset'
 
 const OPENAI_DEFAULT_BASE_URL = 'https://api.openai.com/v1'
 const RAW_DEFAULT_API_URL = readRuntimeEnv(import.meta.env.VITE_DEFAULT_API_URL)
@@ -32,6 +38,7 @@ const DEFAULT_OPENAI_API_PROXY = readRuntimeEnv(import.meta.env.VITE_API_PROXY_A
 const DOCKER_DEPLOYMENT = readRuntimeEnv(import.meta.env.VITE_DOCKER_DEPLOYMENT) === 'true'
 const SHOW_DEFAULT_CONFIG_ONLY = readRuntimeEnv(import.meta.env.VITE_SHOW_DEFAULT_CONFIG_ONLY) === 'true'
 const VIBELEARNING_PRESET = readRuntimeEnv(import.meta.env.VITE_VIBELEARNING_PRESET) === 'true'
+const PRO_PRESET = readRuntimeEnv(import.meta.env.VITE_PRO_PRESET) === 'true'
 const DEFAULT_API_URL_PATCH = isImportableConfigUrl(RAW_DEFAULT_API_URL)
   ? null
   : parseDefaultApiUrl(RAW_DEFAULT_API_URL || (DOCKER_DEPLOYMENT && DEFAULT_OPENAI_API_PROXY ? '' : OPENAI_DEFAULT_BASE_URL))
@@ -723,6 +730,11 @@ function isDefaultVibeLearningProfile(profile: ApiProfile): boolean {
 }
 
 function hasOnlyDefaultProfiles(settings: AppSettings): boolean {
+  if (settings.profiles.length === MULTIMODAL_MODELS.length &&
+      settings.profiles.every((profile) => isDefaultMultimodalProfile(profile))) {
+    return settings.activeProfileId === MULTIMODAL_DEFAULT_PROFILE_ID &&
+      settings.customProviders.length === 0
+  }
   if (settings.profiles.length !== 1) return false
   const profile = settings.profiles[0]
   if (isDefaultVibeLearningProfile(profile)) {
@@ -898,7 +910,10 @@ export const DEFAULT_SETTINGS: AppSettings = normalizeSettings({
   agentApiConfigMode: 'off',
   agentTextProfileId: null,
   agentImageProfileId: null,
-  ...(VIBELEARNING_PRESET ? {
+  ...(PRO_PRESET ? {
+    profiles: createMultimodalProfiles(DEFAULT_API_TIMEOUT),
+    activeProfileId: MULTIMODAL_DEFAULT_PROFILE_ID,
+  } : VIBELEARNING_PRESET ? {
     profiles: [createVibeLearningProfile('', DEFAULT_API_TIMEOUT)],
     activeProfileId: VIBELEARNING_PROFILE_ID,
   } : {}),
