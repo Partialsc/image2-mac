@@ -95,6 +95,11 @@ export function isDefaultConfigOnlyEnabled(): boolean {
   return SHOW_DEFAULT_CONFIG_ONLY && (Boolean(RAW_DEFAULT_API_URL) || DEFAULT_OPENAI_API_PROXY)
 }
 
+// 是否为内置 multimodal 模型预设的 Pro 构建(用于设置区模型建议下拉)
+export function isProPresetBuild(): boolean {
+  return PRO_PRESET
+}
+
 function normalizeZipDownloadRoutes(value: unknown) {
   if (!Array.isArray(value)) return [...DEFAULT_ZIP_DOWNLOAD_ROUTES]
   const allowed = new Set<string>(ZIP_DOWNLOAD_ROUTE_VALUES)
