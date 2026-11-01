@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { normalizeBaseUrl } from '../lib/api'
 import { hasActiveDataOperations } from '../lib/dataOperations'
-import { isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig } from '../lib/devProxy'
+import { buildApiUrl, isApiProxyAvailable, isApiProxyLocked, readClientDevProxyConfig } from '../lib/devProxy'
 import { useStore, exportData, importData, clearData, type SettingsTab } from '../store'
 import {
   createDefaultOpenAIProfile,
@@ -197,6 +197,16 @@ export default function SettingsModal() {
   const profileTouchDragRef = useRef<{ id: string, startX: number, startY: number, moved: boolean } | null>(null)
   const [copyImportUrlProfile, setCopyImportUrlProfile] = useState<ApiProfile | null>(null)
   const [copyImportUrlOptions, setCopyImportUrlOptions] = useState<CopyImportUrlOptions>(readCopyImportUrlOptions)
+  const [modelSuggestions, setModelSuggestions] = useState<string[] | null>(null)
+  const [modelFetchStatus, setModelFetchStatus] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [modelFetchError, setModelFetchError] = useState('')
+
+  // 切换配置时清空上一条配置拉到的模型列表
+  useEffect(() => {
+    setModelSuggestions(null)
+    setModelFetchStatus('idle')
+    setModelFetchError('')
+  }, [draft.activeProfileId])
 
   const apiProxyConfig = readClientDevProxyConfig()
   const apiProxyAvailable = isApiProxyAvailable(apiProxyConfig)
@@ -208,6 +218,47 @@ export default function SettingsModal() {
   const activeCustomProvider = draft.customProviders.find((provider) => provider.id === activeProfile.provider)
   const activeProfileApiProxyEligible = isProfileApiProxyEligible(draft, activeProfile)
   const activeCustomProviderAsync = isAsyncCustomProvider(activeCustomProvider)
+  const modelSuggestionOptions = modelSuggestions ??
+    (isProPresetBuild() && activeProfile.provider === 'openai' && (activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode) === 'images'
+      ? MULTIMODAL_MODELS.map((preset) => preset.model)
+      : [])
+
+  // 用当前配置的 Key 调 GET /v1/models,按分组拉取可用模型列表
+  const fetchModelSuggestions = useCallback(async () => {
+    if (!activeProfile.apiKey.trim()) {
+      setModelFetchStatus('error')
+      setModelFetchError('请先填写 API Key 再获取')
+      return
+    }
+    setModelFetchStatus('loading')
+    setModelFetchError('')
+    try {
+      const res = await fetch(buildApiUrl(activeProfile.baseUrl, 'models'), {
+        headers: { Authorization: `Bearer ${activeProfile.apiKey}` },
+      })
+      if (!res.ok) throw new Error(res.status === 401 ? 'Key 无效(HTTP 401)' : `HTTP ${res.status}`)
+      const data: unknown = await res.json()
+      const record = data && typeof data === 'object' ? data as { data?: unknown } : {}
+      const list = Array.isArray(record.data)
+        ? record.data
+          .filter((item) => {
+            if (!item || typeof item !== 'object') return false
+            const endpointTypes = (item as { supported_endpoint_types?: unknown }).supported_endpoint_types
+            // 站点标注了接口类型时,只保留支持图片接口的模型(如 banana 系只支持聊天,不显示)
+            return !Array.isArray(endpointTypes) || endpointTypes.includes('image-generation')
+          })
+          .map((item) => String((item as { id?: unknown }).id ?? '').trim())
+          .filter(Boolean)
+        : []
+      if (!list.length) throw new Error('接口未返回模型')
+      setModelSuggestions(list)
+      setModelFetchStatus('idle')
+    } catch (error) {
+      setModelSuggestions(null)
+      setModelFetchStatus('error')
+      setModelFetchError(`获取失败:${(error as Error).message},请检查 API URL 与 Key`)
+    }
+  }, [activeProfile])
   const apiProxyChecked = activeProfileApiProxyEligible && (apiProxyLocked || activeProfile.apiProxy)
   const apiProxyEnabled = apiProxyAvailable && activeProfileApiProxyEligible && apiProxyChecked
   const defaultProviderOrder = ['openai', 'fal', ...draft.customProviders.map(p => p.id)]
@@ -1499,9 +1550,21 @@ export default function SettingsModal() {
 
               {/* 7. 模型 ID（紧跟接口选择） */}
               <label className="block">
-                <span className="mb-1.5 block text-sm text-gray-600 dark:text-gray-300">
-                  模型 ID
-                </span>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="block text-sm text-gray-600 dark:text-gray-300">
+                    模型 ID
+                  </span>
+                  {activeProfile.provider === 'openai' && (
+                    <button
+                      type="button"
+                      onClick={fetchModelSuggestions}
+                      disabled={modelFetchStatus === 'loading'}
+                      className="text-xs text-blue-500 transition hover:text-blue-600 disabled:opacity-50 dark:text-blue-400 dark:hover:text-blue-300"
+                    >
+                      {modelFetchStatus === 'loading' ? '获取中…' : '从接口获取模型列表'}
+                    </button>
+                  )}
+                </div>
                 <input
                   value={activeProfile.model}
                   onChange={(e) => updateActiveProfile({ model: e.target.value })}
@@ -1511,12 +1574,15 @@ export default function SettingsModal() {
                   placeholder={activeProfile.provider === 'fal' ? DEFAULT_FAL_MODEL : getDefaultModelForMode(activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode)}
                   className="w-full rounded-xl border border-gray-200/70 bg-white/60 px-3 py-2.5 text-sm text-gray-700 outline-none transition focus:border-blue-300 dark:border-white/[0.08] dark:bg-white/[0.03] dark:text-gray-200 dark:focus:border-blue-500/50"
                 />
-                {isProPresetBuild() && activeProfile.provider === 'openai' && (activeProfile.apiMode ?? DEFAULT_SETTINGS.apiMode) === 'images' && (
+                {modelSuggestionOptions.length > 0 && (
                   <datalist id="model-id-suggestions">
-                    {MULTIMODAL_MODELS.map((preset) => (
-                      <option key={preset.id} value={preset.model}>{preset.name}</option>
+                    {modelSuggestionOptions.map((model) => (
+                      <option key={model} value={model} />
                     ))}
                   </datalist>
+                )}
+                {modelFetchStatus === 'error' && (
+                  <div className="mt-1 text-xs text-red-500 dark:text-red-400">{modelFetchError}</div>
                 )}
                 <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
                   {activeProfile.provider === 'fal' ? (
