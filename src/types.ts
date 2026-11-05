@@ -15,7 +15,7 @@ export type ZipDownloadRoute = typeof ZIP_DOWNLOAD_ROUTE_VALUES[number]
 export const DEFAULT_ZIP_DOWNLOAD_ROUTES: ZipDownloadRoute[] = ['task-selection', 'favorite-collection-selection']
 export type BuiltInApiProvider = 'openai' | 'fal'
 export type ApiProvider = BuiltInApiProvider | string
-export type CustomProviderTemplate = 'http-image'
+export type CustomProviderTemplate = 'http-image' | 'chat-image'
 export const DEFAULT_STREAM_PARTIAL_IMAGES = 1
 export const DEFAULT_AGENT_MAX_TOOL_ROUNDS = 15
 
@@ -96,8 +96,8 @@ export interface AppSettings {
   streamPartialImages?: number
   customProviders: CustomProviderDefinition[]
   providerOrder?: string[]
-  /** Pro 构建:内置 multimodal 模型配置是否已注入过本机(防止用户删除后被反复加回) */
-  multimodalInjected?: boolean
+  /** Pro 构建:内置 multimodal 配置目录的注入版本(旧布尔 true 等于版本 1,防止用户删除后被反复加回) */
+  multimodalInjected?: boolean | number
   clearInputAfterSubmit: boolean
   persistInputOnRestart: boolean
   reuseTaskApiProfileTemporarily: boolean

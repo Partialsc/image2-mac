@@ -34,6 +34,11 @@ export function normalizeParamsForSettings(
     nextParams.output_compression = DEFAULT_PARAMS.output_compression
   }
 
+  // grok 系模型不接受 size:auto(实测报 invalid image size: auto),替换为具体尺寸
+  if (activeProfile.provider === 'openai' && activeProfile.model.startsWith('grok-') && nextParams.size === 'auto') {
+    nextParams.size = '1024x1024'
+  }
+
   if (nextParams.output_format === 'png') {
     nextParams.output_compression = DEFAULT_PARAMS.output_compression
   }

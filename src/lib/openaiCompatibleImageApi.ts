@@ -405,6 +405,7 @@ async function parseResponsesApiStreamResponse(
 
 export async function callOpenAICompatibleImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider?: CustomProviderDefinition | null): Promise<CallApiResult> {
   if (customProvider) {
+    if (customProvider.template === 'chat-image') return callChatImageApi(opts, profile)
     return callCustomHttpImageApi(opts, profile, customProvider)
   }
 
@@ -878,6 +879,81 @@ export async function getCustomQueuedImageResult(
   if (!customProvider.poll) throw new Error('自定义异步任务缺少 poll 配置')
   const mime = MIME_MAP[params.output_format] || 'image/png'
   return pollCustomTaskResult(profile, customProvider.poll, taskId, mime)
+}
+
+// 聊天式生图:POST /chat/completions,从 message.content 里提取 data:image 或 http 图片链接。
+// banana(Gemini)系模型只支持此通道(实测:图片接口报 only imagen models are supported)。
+async function callChatImageApi(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
+  const { prompt, inputImageDataUrls } = opts
+  const mime = MIME_MAP[opts.params.output_format] || 'image/png'
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
+
+  try {
+    const proxyConfig = readClientDevProxyConfig()
+    const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
+    const content: Array<Record<string, unknown>> = [{ type: 'text', text: prompt }]
+    for (const url of inputImageDataUrls) {
+      content.push({ type: 'image_url', image_url: { url } })
+    }
+
+    const response = await fetch(buildApiUrl(profile.baseUrl, 'chat/completions', proxyConfig, useApiProxy), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${profile.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+      body: JSON.stringify({
+        model: profile.model,
+        messages: [{ role: 'user', content }],
+      }),
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      const err = new Error(await getApiErrorMessage(response))
+      ;(err as any).rawResponsePayload = await response.text().catch(() => '')
+      throw err
+    }
+
+    const payload = await response.json()
+    const message = payload?.choices?.[0]?.message
+    const segments: string[] = []
+    if (typeof message?.content === 'string') {
+      segments.push(message.content)
+    } else if (Array.isArray(message?.content)) {
+      for (const part of message.content) {
+        if (typeof part === 'string') {
+          segments.push(part)
+          continue
+        }
+        if (part && typeof part === 'object') {
+          const partRecord = part as { text?: unknown, image_url?: { url?: unknown } }
+          if (typeof partRecord.text === 'string') segments.push(partRecord.text)
+          if (typeof partRecord.image_url?.url === 'string') segments.push(partRecord.image_url.url)
+        }
+      }
+    }
+    const text = segments.join('\n')
+    const dataUrls = text.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g) ?? []
+    const httpUrls = (text.match(/https?:\/\/[^\s)"'<>]+/g) ?? [])
+      .filter((url) => /\.(png|jpe?g|webp|gif)(?:[?#)\]"'\s]|$)/i.test(url))
+
+    if (!dataUrls.length && !httpUrls.length) {
+      const err = new Error('聊天接口没有返回图片，请确认该模型支持生图、Key 分组正确且余额充足。')
+      ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
+      throw err
+    }
+
+    const images: string[] = []
+    for (const url of [...dataUrls, ...httpUrls]) {
+      images.push(await fetchImageUrlAsDataUrl(url, mime, controller.signal))
+    }
+    return { images }
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 async function callCustomHttpImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider: CustomProviderDefinition): Promise<CallApiResult> {

@@ -243,9 +243,12 @@ export default function SettingsModal() {
         ? record.data
           .filter((item) => {
             if (!item || typeof item !== 'object') return false
+            const id = String((item as { id?: unknown }).id ?? '')
             const endpointTypes = (item as { supported_endpoint_types?: unknown }).supported_endpoint_types
-            // 站点标注了接口类型时,只保留支持图片接口的模型(如 banana 系只支持聊天,不显示)
-            return !Array.isArray(endpointTypes) || endpointTypes.includes('image-generation')
+            // 站点元数据不可靠(grok 标注聊天实则走图片接口),只排除确定的视频模型;
+            // gemini(banana)系只支持聊天接口,有专门的内置配置,不进 OpenAI 图片配置的建议列表
+            if (Array.isArray(endpointTypes) && endpointTypes.every((type) => type === 'openai-video')) return false
+            return !id.startsWith('gemini-')
           })
           .map((item) => String((item as { id?: unknown }).id ?? '').trim())
           .filter(Boolean)

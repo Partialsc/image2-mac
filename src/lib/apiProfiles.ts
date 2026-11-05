@@ -28,6 +28,9 @@ import {
 import {
   createMultimodalProfiles,
   isDefaultMultimodalProfile,
+  MULTIMODAL_CATALOG_VERSION,
+  MULTIMODAL_CHAT_PROVIDER,
+  MULTIMODAL_CHAT_PROVIDER_ID,
   MULTIMODAL_DEFAULT_PROFILE_ID,
   MULTIMODAL_MODELS,
 } from './multimodalPreset'
@@ -127,7 +130,7 @@ export function isAgentTextApiProfile(profile: ApiProfile): boolean {
 }
 
 function isCustomProviderTemplate(value: unknown): value is CustomProviderTemplate {
-  return value === 'http-image'
+  return value === 'http-image' || value === 'chat-image'
 }
 
 function normalizeProviderPath(value: unknown, fallback: string): string {
@@ -527,17 +530,29 @@ function validateImportedProfileRecord(input: unknown) {
 }
 
 // Pro 构建:任何机器(含带旧配置数据的老安装)首次运行时补齐内置 multimodal 模型配置。
-// 幂等:已注入过(injected)则跳过,避免用户主动删除后被反复加回。
-export function ensureMultimodalProfiles(profiles: ApiProfile[], options: { enabled: boolean, injected: boolean }): ApiProfile[] {
-  if (!options.enabled || options.injected) return profiles
+// 幂等:按目录版本比较,已注入到当前版本则跳过,避免用户主动删除后被反复加回。
+export function ensureMultimodalProfiles(profiles: ApiProfile[], options: { enabled: boolean, version: number }): ApiProfile[] {
+  if (!options.enabled || options.version >= MULTIMODAL_CATALOG_VERSION) return profiles
   const existingIds = new Set(profiles.map((profile) => profile.id))
   const missing = createMultimodalProfiles(DEFAULT_API_TIMEOUT).filter((profile) => !existingIds.has(profile.id))
   return missing.length ? [...profiles, ...missing] : profiles
 }
 
+// Pro 构建:确保聊天式生图服务商定义存在(banana 系模型依赖)
+function ensureMultimodalChatProvider(providers: CustomProviderDefinition[]): CustomProviderDefinition[] {
+  if (!PRO_PRESET || providers.some((provider) => provider.id === MULTIMODAL_CHAT_PROVIDER_ID)) return providers
+  return [...providers, MULTIMODAL_CHAT_PROVIDER]
+}
+
+function readMultimodalInjectedVersion(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  // 0.7.5 的旧布尔标记视为版本 1(6 条图片接口配置)
+  return value === true ? 1 : 0
+}
+
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
-  const customProviders = ensureVibeLearningProvider(normalizeCustomProviderDefinitions(record.customProviders))
+  const customProviders = ensureMultimodalChatProvider(ensureVibeLearningProvider(normalizeCustomProviderDefinitions(record.customProviders)))
   const customProviderIds = new Set(customProviders.map((provider) => provider.id))
   const legacyApiMode: ApiMode = record.apiMode === 'responses' ? 'responses' : 'images'
   const legacyProfile = createDefaultOpenAIProfile({
@@ -555,7 +570,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
   const normalizedProfiles = Array.isArray(record.profiles) && record.profiles.length
     ? record.profiles.map((profile) => normalizeApiProfile(profile, undefined, customProviderIds))
     : [legacyProfile]
-  const profiles = ensureMultimodalProfiles(normalizedProfiles, { enabled: PRO_PRESET, injected: record.multimodalInjected === true })
+  const profiles = ensureMultimodalProfiles(normalizedProfiles, { enabled: PRO_PRESET, version: readMultimodalInjectedVersion(record.multimodalInjected) })
   const activeProfileId = typeof record.activeProfileId === 'string' && profiles.some((p) => p.id === record.activeProfileId)
     ? record.activeProfileId
     : profiles[0].id
@@ -598,7 +613,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     agentImageProfileId,
     profiles,
     activeProfileId,
-    multimodalInjected: PRO_PRESET ? true : undefined,
+    multimodalInjected: PRO_PRESET ? MULTIMODAL_CATALOG_VERSION : undefined,
   }
 
   return normalized
@@ -749,7 +764,7 @@ function hasOnlyDefaultProfiles(settings: AppSettings): boolean {
   if (settings.profiles.length === MULTIMODAL_MODELS.length &&
       settings.profiles.every((profile) => isDefaultMultimodalProfile(profile))) {
     return settings.activeProfileId === MULTIMODAL_DEFAULT_PROFILE_ID &&
-      settings.customProviders.length === 0
+      settings.customProviders.every((provider) => provider.id === MULTIMODAL_CHAT_PROVIDER_ID)
   }
   if (settings.profiles.length !== 1) return false
   const profile = settings.profiles[0]
