@@ -96,6 +96,8 @@ export interface AppSettings {
   streamPartialImages?: number
   customProviders: CustomProviderDefinition[]
   providerOrder?: string[]
+  /** Pro 构建:内置 multimodal 模型配置是否已注入过本机(防止用户删除后被反复加回) */
+  multimodalInjected?: boolean
   clearInputAfterSubmit: boolean
   persistInputOnRestart: boolean
   reuseTaskApiProfileTemporarily: boolean

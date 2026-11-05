@@ -526,6 +526,15 @@ function validateImportedProfileRecord(input: unknown) {
   }
 }
 
+// Pro 构建:任何机器(含带旧配置数据的老安装)首次运行时补齐内置 multimodal 模型配置。
+// 幂等:已注入过(injected)则跳过,避免用户主动删除后被反复加回。
+export function ensureMultimodalProfiles(profiles: ApiProfile[], options: { enabled: boolean, injected: boolean }): ApiProfile[] {
+  if (!options.enabled || options.injected) return profiles
+  const existingIds = new Set(profiles.map((profile) => profile.id))
+  const missing = createMultimodalProfiles(DEFAULT_API_TIMEOUT).filter((profile) => !existingIds.has(profile.id))
+  return missing.length ? [...profiles, ...missing] : profiles
+}
+
 export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSettings {
   const record = input && typeof input === 'object' ? input as Record<string, unknown> : {}
   const customProviders = ensureVibeLearningProvider(normalizeCustomProviderDefinitions(record.customProviders))
@@ -543,9 +552,10 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     streamImages: typeof record.streamImages === 'boolean' ? record.streamImages : undefined,
     streamPartialImages: normalizeStreamPartialImages(record.streamPartialImages),
   })
-  const profiles = Array.isArray(record.profiles) && record.profiles.length
+  const normalizedProfiles = Array.isArray(record.profiles) && record.profiles.length
     ? record.profiles.map((profile) => normalizeApiProfile(profile, undefined, customProviderIds))
     : [legacyProfile]
+  const profiles = ensureMultimodalProfiles(normalizedProfiles, { enabled: PRO_PRESET, injected: record.multimodalInjected === true })
   const activeProfileId = typeof record.activeProfileId === 'string' && profiles.some((p) => p.id === record.activeProfileId)
     ? record.activeProfileId
     : profiles[0].id
@@ -588,6 +598,7 @@ export function normalizeSettings(input: Partial<AppSettings> | unknown): AppSet
     agentImageProfileId,
     profiles,
     activeProfileId,
+    multimodalInjected: PRO_PRESET ? true : undefined,
   }
 
   return normalized

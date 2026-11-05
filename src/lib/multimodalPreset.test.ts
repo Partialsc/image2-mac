@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_PARAMS } from '../types'
 import { callImageApi } from './api'
-import { normalizeSettings } from './apiProfiles'
+import { ensureMultimodalProfiles, normalizeSettings } from './apiProfiles'
 import {
   createMultimodalProfiles,
   isDefaultMultimodalProfile,
@@ -64,5 +64,31 @@ describe('Multimodal Pro 预设', () => {
     expect(isDefaultMultimodalProfile({ ...first, baseUrl: 'https://api.openai.com/v1' })).toBe(false)
     expect(isDefaultMultimodalProfile({ ...first, id: 'other-profile' })).toBe(false)
     expect(rest.every((profile) => isDefaultMultimodalProfile(profile))).toBe(true)
+  })
+})
+
+describe('ensureMultimodalProfiles', () => {
+  it('Pro 构建首次运行时为旧数据机器补齐内置配置,不动原有配置', () => {
+    const legacy = [{ ...createMultimodalProfiles(600)[0], id: 'legacy-profile', name: '旧配置', apiKey: 'sk-kept' }]
+    const merged = ensureMultimodalProfiles(legacy, { enabled: true, injected: false })
+
+    expect(merged).toHaveLength(1 + MULTIMODAL_MODELS.length)
+    expect(merged[0].apiKey).toBe('sk-kept')
+    expect(merged.slice(1).every((profile) => profile.apiKey === '')).toBe(true)
+  })
+
+  it('已注入过或未开启 Pro 构建时不做任何改动', () => {
+    const profiles = createMultimodalProfiles(600)
+
+    expect(ensureMultimodalProfiles(profiles, { enabled: true, injected: true })).toBe(profiles)
+    expect(ensureMultimodalProfiles(profiles, { enabled: false, injected: false })).toBe(profiles)
+  })
+
+  it('已存在的同 id 配置不重复添加', () => {
+    const partial = createMultimodalProfiles(600).slice(0, 2)
+    const merged = ensureMultimodalProfiles(partial, { enabled: true, injected: false })
+
+    expect(merged).toHaveLength(MULTIMODAL_MODELS.length)
+    expect(new Set(merged.map((profile) => profile.id)).size).toBe(MULTIMODAL_MODELS.length)
   })
 })
