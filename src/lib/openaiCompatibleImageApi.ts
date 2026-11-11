@@ -19,6 +19,7 @@ import {
   MIME_MAP,
   normalizeBase64Image,
   pickActualParams,
+  sanitizeApiKeyOrThrow,
 } from './imageApiShared'
 import { isEventStreamResponse, readJsonServerSentEvents } from './serverSentEvents'
 
@@ -86,7 +87,7 @@ function normalizeImageApiPayload(value: unknown): ImageApiResponse {
 
 function createRequestHeaders(profile: ApiProfile): Record<string, string> {
   return {
-    Authorization: `Bearer ${profile.apiKey}`,
+    Authorization: `Bearer ${sanitizeApiKeyOrThrow(profile.apiKey)}`,
   }
 }
 
@@ -900,7 +901,7 @@ async function callChatImageApi(opts: CallApiOptions, profile: ApiProfile): Prom
     const response = await fetch(buildApiUrl(profile.baseUrl, 'chat/completions', proxyConfig, useApiProxy), {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${profile.apiKey}`,
+        Authorization: `Bearer ${sanitizeApiKeyOrThrow(profile.apiKey)}`,
         'Content-Type': 'application/json',
       },
       cache: 'no-store',

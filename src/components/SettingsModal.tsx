@@ -1520,6 +1520,11 @@ export default function SettingsModal() {
                     )}
                   </button>
                 </div>
+                {/[^\u0000-\u00FF]/.test(activeProfile.apiKey) && (
+                  <div className="mt-1 text-xs text-red-500 dark:text-red-400">
+                    Key 中包含中文或其他非英文字符(可能复制时混入),会导致请求报错,请清空后重新复制粘贴纯 Key
+                  </div>
+                )}
                 <div data-selectable-text className="mt-1.5 text-xs text-gray-500 dark:text-gray-500">
                   支持通过查询参数覆盖：<code className="bg-gray-100 dark:bg-white/[0.06] px-1 py-0.5 rounded">?apiKey=</code>
                 </div>

@@ -215,3 +215,12 @@ export function mergeActualParams(...sources: Array<Partial<TaskParams> | undefi
   const merged = Object.assign({}, ...sources.filter((source) => source && Object.keys(source).length))
   return Object.keys(merged).length ? merged : undefined
 }
+
+/** 清理 API Key 中复制混入的空白、全角空格与零宽字符;若仍含非 ISO-8859-1 字符(如中文),抛出明确错误,避免 fetch 报难懂的 Headers 异常 */
+export function sanitizeApiKeyOrThrow(value: string): string {
+  const cleaned = value.replace(/[\s\u00A0\u3000\u200B-\u200D\uFEFF]/g, '')
+  if (/[^\x00-\xFF]/.test(cleaned)) {
+    throw new Error('API Key 中包含中文或其他非英文字符(可能是复制时混入),请删除后重新复制粘贴纯 Key(通常以 sk- 开头)。')
+  }
+  return cleaned
+}

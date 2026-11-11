@@ -1,6 +1,6 @@
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
-import { appendStreamingFormatHint, getApiErrorMessage, getResponsesImageResultBase64, maybeAppendStreamingHint, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
+import { appendStreamingFormatHint, getApiErrorMessage, getResponsesImageResultBase64, maybeAppendStreamingHint, MIME_MAP, normalizeBase64Image, pickActualParams, sanitizeApiKeyOrThrow } from './imageApiShared'
 import { normalizeResponsesOutputItems } from './responsesOutputState'
 import { isEventStreamResponse, readJsonServerSentEvents, throwIfAborted } from './serverSentEvents'
 
@@ -97,7 +97,7 @@ const AGENT_TITLE_MAX_LENGTH = 28
 
 function createHeaders(profile: ApiProfile): Record<string, string> {
   return {
-    Authorization: `Bearer ${profile.apiKey}`,
+    Authorization: `Bearer ${sanitizeApiKeyOrThrow(profile.apiKey)}`,
     'Content-Type': 'application/json',
   }
 }
