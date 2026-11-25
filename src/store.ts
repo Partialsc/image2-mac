@@ -42,6 +42,7 @@ import {
   clearImages,
   storeImage,
   storeImageWithSize,
+  probeIndexedDBHealth,
 } from './lib/db'
 import { callImageApi } from './lib/api'
 import { callAgentConversationTitleApi, callAgentResponsesApi, callBatchImageSingle, parseBatchImageCallArguments, type AgentApiResultImage } from './lib/agentApi'
@@ -305,6 +306,8 @@ interface AppState {
   // Agent
   agentConversations: AgentConversation[]
   agentConversationsLoaded: boolean
+  /** IndexedDB 损坏(启动健康检查失败):上传图片/历史记录不可用,提示用户修复 */
+  idbBroken: boolean
   activeAgentConversationId: string | null
   agentInputDrafts: Record<string, AgentInputDraft>
   agentSidebarCollapsed: boolean
@@ -700,6 +703,7 @@ export const useStore = create<AppState>()(
       // Agent
       agentConversations: [],
       agentConversationsLoaded: false,
+      idbBroken: false,
       activeAgentConversationId: null,
       agentInputDrafts: {},
       agentSidebarCollapsed: true,
@@ -1367,6 +1371,12 @@ async function recoverFalTask(taskId: string) {
 
 /** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
+  // IndexedDB 损坏(进程被强杀等):标记并跳过加载,由 App 弹窗引导修复,避免后续所有读写静默失败
+  if (!(await probeIndexedDBHealth())) {
+    agentConversationPersistenceReady = true
+    useStore.setState({ idbBroken: true, agentConversationsLoaded: true })
+    return
+  }
   const legacyAgentConversations = normalizeAgentConversations(useStore.getState().agentConversations)
   const storedTasks = await getAllTasks()
   const storedAgentConversations = normalizeAgentConversations(await getAllAgentConversations())

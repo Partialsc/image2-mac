@@ -96,6 +96,33 @@ export default function App() {
     initStore()
   }, [setSettings])
 
+  const idbBroken = useStore((s) => s.idbBroken)
+  const setConfirmDialog = useStore((s) => s.setConfirmDialog)
+  const showToast = useStore((s) => s.showToast)
+  useEffect(() => {
+    if (!idbBroken) return
+    if (window.electronAPI) {
+      setConfirmDialog({
+        title: '本地数据库已损坏',
+        message: '上传图片与历史记录所依赖的本地数据库已损坏(通常由程序异常退出引起),相关功能暂不可用。\n\n点击「修复并重启」将自动清理并重建数据库:历史任务与本地图片会被清空,**API 配置不受影响**。',
+        icon: 'info',
+        confirmText: '修复并重启',
+        awaitAction: true,
+        action: async () => {
+          const result = await window.electronAPI!.repairIndexedDB()
+          if (!result.ok) {
+            showToast(`修复失败:${result.error ?? '未知错误'}`, 'error')
+            return false
+          }
+          return true
+        },
+        cancelText: '暂不修复',
+      })
+    } else {
+      showToast('本地数据库已损坏,请在浏览器设置中清除站点数据后刷新页面(历史记录会清空,配置不受影响)。', 'error')
+    }
+  }, [idbBroken, setConfirmDialog, showToast])
+
   useEffect(() => {
     const preventPageImageDrag = (e: DragEvent) => {
       if ((e.target as HTMLElement | null)?.closest('img')) {

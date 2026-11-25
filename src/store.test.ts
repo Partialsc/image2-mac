@@ -74,6 +74,7 @@ vi.mock('./lib/db', () => {
       images.set(id, { id, dataUrl, source, createdAt: Date.now() })
       return id
     },
+    probeIndexedDBHealth: async () => true,
     storeImageWithSize: async (dataUrl: string, source: StoredImage['source'] = 'upload') => {
       const id = `stored-image-${++imageSeq}`
       const size = dataUrl.match(/(\d+)x(\d+)/)

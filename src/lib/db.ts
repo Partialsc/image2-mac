@@ -52,6 +52,17 @@ function dbTransaction<T>(
   )
 }
 
+/** 启动健康检查:IndexedDB 目录损坏(如进程被强杀)时 open 会抛 UnknownError,据此触发自愈流程 */
+export async function probeIndexedDBHealth(): Promise<boolean> {
+  try {
+    const db = await openDB()
+    db.close()
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ===== Tasks =====
 
 export function getAllTasks(): Promise<TaskRecord[]> {
