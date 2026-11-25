@@ -3,3 +3,4 @@ dist/
 release/
 dev-proxy.config.json
 .wrangler/
+release-0.7.8/
