@@ -2,7 +2,7 @@ import type { ApiProfile, CustomProviderDefinition } from '../types'
 
 // VibeLearning Pro(multimodal.vibelearning.top)内置模型预设。
 // 图片接口模型(POST /v1/images/generations,同步返回):gpt 系 $0.15/张、grok 系 $0.04~$0.08/张
-// 聊天接口模型(POST /v1/chat/completions,content 里返回 data:image base64):banana 系 $0.12~$0.15/张
+// 聊天接口模型(Gemini 原生 /v1beta/.../generateContent,candidates 里返回 inlineData):banana 系 $0.12~$0.15/张
 // 同一站不同分组用不同 Key(2026-11 实测,详见站点 /docs)
 export const MULTIMODAL_BASE_URL = 'https://multimodal.vibelearning.top/v1'
 export const MULTIMODAL_PROFILE_PREFIX = 'multimodal-'
@@ -12,12 +12,13 @@ export const MULTIMODAL_CHAT_PROVIDER_ID = 'multimodal-chat'
 export const MULTIMODAL_CATALOG_VERSION = 2
 
 // 聊天式生图服务商(grok/banana 等不走图片接口的模型走这里)
+// 路径为 Gemini 原生 generateContent(比例控制只有原生通道生效,见 callChatImageApi 注释)
 export const MULTIMODAL_CHAT_PROVIDER: CustomProviderDefinition = {
   id: MULTIMODAL_CHAT_PROVIDER_ID,
   name: 'Multimodal 聊天生图',
   template: 'chat-image',
   submit: {
-    path: 'chat/completions',
+    path: 'v1beta/models/{model}:generateContent',
     method: 'POST',
     contentType: 'json',
     body: {},

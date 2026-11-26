@@ -104,7 +104,7 @@ describe('ensureMultimodalProfiles', () => {
 })
 
 describe('聊天式生图(banana 通道)', () => {
-  it('banana 配置走 chat/completions 并从 content 提取 data:image', async () => {
+  it('banana 配置走原生 generateContent,从 candidates 提取 inlineData,并带 aspectRatio', async () => {
     const bananaProfile = createMultimodalProfiles(600).find((profile) => profile.model === 'gemini-nano-banana-2.1')
     if (!bananaProfile) throw new Error('banana preset missing')
     const settings = normalizeSettings({
@@ -115,20 +115,59 @@ describe('聊天式生图(banana 通道)', () => {
 
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        choices: [{ message: { role: 'assistant', content: '好的,这是图\n![image](data:image/png;base64,aW1hZ2U=)' } }],
+        candidates: [{ content: { parts: [
+          { text: '好的,这是图' },
+          { inlineData: { mimeType: 'image/png', data: 'aW1hZ2U=' } },
+        ] } }],
       }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
 
     const result = await callImageApi({
       settings,
       prompt: '画一只熊猫',
-      params: { ...DEFAULT_PARAMS },
+      params: { ...DEFAULT_PARAMS, size: '1024x1536' },
       inputImageDataUrls: [],
     })
 
-    expect(fetchMock.mock.calls[0][0]).toBe(`${MULTIMODAL_BASE_URL}/chat/completions`)
+    expect(fetchMock.mock.calls[0][0]).toBe('https://multimodal.vibelearning.top/v1beta/models/gemini-nano-banana-2.1:generateContent')
     const submit = fetchMock.mock.calls[0][1] as RequestInit
-    expect(JSON.parse(String(submit.body))).toMatchObject({ model: 'gemini-nano-banana-2.1' })
+    expect(JSON.parse(String(submit.body))).toMatchObject({
+      contents: [{ role: 'user', parts: [{ text: '画一只熊猫' }] }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'], imageConfig: { aspectRatio: '2:3' } },
+    })
     expect(result.images).toEqual(['data:image/png;base64,aW1hZ2U='])
+  })
+
+  it('size 为 auto 时不传 imageConfig,参考图转 inline_data part', async () => {
+    const bananaProfile = createMultimodalProfiles(600).find((profile) => profile.model === 'gemini-nano-banana-2.1')
+    if (!bananaProfile) throw new Error('banana preset missing')
+    const settings = normalizeSettings({
+      customProviders: [MULTIMODAL_CHAT_PROVIDER],
+      profiles: [{ ...bananaProfile, apiKey: 'test-key' }],
+      activeProfileId: bananaProfile.id,
+    })
+
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ inline_data: { mime_type: 'image/jpeg', data: 'aW1hZ2U=' } }] } }],
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    const result = await callImageApi({
+      settings,
+      prompt: '画一只熊猫',
+      params: { ...DEFAULT_PARAMS, size: 'auto' },
+      inputImageDataUrls: ['data:image/png;base64,aW1hZ2U='],
+    })
+
+    const submit = fetchMock.mock.calls[0][1] as RequestInit
+    expect(JSON.parse(String(submit.body))).toMatchObject({
+      contents: [{ role: 'user', parts: [
+        { text: '画一只熊猫' },
+        { inline_data: { mime_type: 'image/png', data: 'aW1hZ2U=' } },
+      ] }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    })
+    expect(JSON.parse(String(submit.body)).generationConfig.imageConfig).toBeUndefined()
+    expect(result.images).toEqual(['data:image/jpeg;base64,aW1hZ2U='])
   })
 })
 

@@ -1,6 +1,7 @@
 import { DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type CustomProviderDefinition, type CustomProviderPollMapping, type CustomProviderResultMapping, type CustomProviderSubmitMapping, type ImageApiResponse, type ImageResponseItem, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { dataUrlToBlob, imageDataUrlToPngBlob, maskDataUrlToPngBlob } from './canvasImage'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
+import { aspectRatioForGemini } from './size'
 import {
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
@@ -882,23 +883,30 @@ export async function getCustomQueuedImageResult(
   return pollCustomTaskResult(profile, customProvider.poll, taskId, mime)
 }
 
-// 聊天式生图:POST /chat/completions,从 message.content 里提取 data:image 或 http 图片链接。
-// banana(Gemini)系模型只支持此通道(实测:图片接口报 only imagen models are supported)。
+// banana(Gemini)系生图通道:POST /v1beta/models/{model}:generateContent,从 candidates[0].content.parts 读 inlineData。
+// 实测(2026-11-26):图片接口报 only imagen models are supported;聊天兼容通道(/chat/completions)忽略
+// 比例参数恒输出 1408x768 横图,比例控制只有原生通道的 generationConfig.imageConfig.aspectRatio 生效。
 async function callChatImageApi(opts: CallApiOptions, profile: ApiProfile): Promise<CallApiResult> {
   const { prompt, inputImageDataUrls } = opts
-  const mime = MIME_MAP[opts.params.output_format] || 'image/png'
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), profile.timeout * 1000)
 
   try {
     const proxyConfig = readClientDevProxyConfig()
     const useApiProxy = shouldUseApiProxy(profile.apiProxy, proxyConfig)
-    const content: Array<Record<string, unknown>> = [{ type: 'text', text: prompt }]
+
+    const parts: Array<Record<string, unknown>> = [{ text: prompt }]
     for (const url of inputImageDataUrls) {
-      content.push({ type: 'image_url', image_url: { url } })
+      const inline = createInlineDataPart(url)
+      if (!inline) throw new Error('参考图格式无法识别（需要 base64 data URL）')
+      parts.push(inline)
     }
 
-    const response = await fetch(buildApiUrl(profile.baseUrl, 'chat/completions', proxyConfig, useApiProxy), {
+    const generationConfig: Record<string, unknown> = { responseModalities: ['TEXT', 'IMAGE'] }
+    const aspectRatio = aspectRatioForGemini(opts.params.size)
+    if (aspectRatio) generationConfig.imageConfig = { aspectRatio }
+
+    const response = await fetch(buildGenerateContentUrl(profile.baseUrl, profile.model, proxyConfig, useApiProxy), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${sanitizeApiKeyOrThrow(profile.apiKey)}`,
@@ -906,8 +914,8 @@ async function callChatImageApi(opts: CallApiOptions, profile: ApiProfile): Prom
       },
       cache: 'no-store',
       body: JSON.stringify({
-        model: profile.model,
-        messages: [{ role: 'user', content }],
+        contents: [{ role: 'user', parts }],
+        generationConfig,
       }),
       signal: controller.signal,
     })
@@ -919,42 +927,67 @@ async function callChatImageApi(opts: CallApiOptions, profile: ApiProfile): Prom
     }
 
     const payload = await response.json()
-    const message = payload?.choices?.[0]?.message
-    const segments: string[] = []
-    if (typeof message?.content === 'string') {
-      segments.push(message.content)
-    } else if (Array.isArray(message?.content)) {
-      for (const part of message.content) {
-        if (typeof part === 'string') {
-          segments.push(part)
-          continue
-        }
-        if (part && typeof part === 'object') {
-          const partRecord = part as { text?: unknown, image_url?: { url?: unknown } }
-          if (typeof partRecord.text === 'string') segments.push(partRecord.text)
-          if (typeof partRecord.image_url?.url === 'string') segments.push(partRecord.image_url.url)
-        }
+    const candidateParts = Array.isArray(payload?.candidates?.[0]?.content?.parts)
+      ? payload.candidates[0].content.parts
+      : []
+
+    const images: string[] = []
+    const textSegments: string[] = []
+    for (const part of candidateParts) {
+      if (!part || typeof part !== 'object') continue
+      const partRecord = part as {
+        text?: unknown,
+        inlineData?: { data?: unknown, mimeType?: unknown },
+        inline_data?: { data?: unknown, mime_type?: unknown },
+      }
+      if (typeof partRecord.text === 'string') textSegments.push(partRecord.text)
+      const inline = partRecord.inlineData ?? partRecord.inline_data
+      if (typeof inline?.data === 'string' && inline.data) {
+        const mimeType = typeof (partRecord.inlineData?.mimeType ?? partRecord.inline_data?.mime_type) === 'string'
+          ? ((partRecord.inlineData?.mimeType ?? partRecord.inline_data?.mime_type) as string)
+          : 'image/png'
+        images.push(`data:${mimeType};base64,${inline.data}`)
       }
     }
-    const text = segments.join('\n')
-    const dataUrls = text.match(/data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+/g) ?? []
-    const httpUrls = (text.match(/https?:\/\/[^\s)"'<>]+/g) ?? [])
-      .filter((url) => /\.(png|jpe?g|webp|gif)(?:[?#)\]"'\s]|$)/i.test(url))
 
-    if (!dataUrls.length && !httpUrls.length) {
-      const err = new Error('聊天接口没有返回图片，请确认该模型支持生图、Key 分组正确且余额充足。')
+    if (!images.length) {
+      const detail = textSegments.join('\n').trim()
+      const err = new Error(
+        detail
+          ? `接口没有返回图片，模型回复：${detail.slice(0, 200)}`
+          : '接口没有返回图片，请确认该模型支持生图、Key 分组正确且余额充足。',
+      )
       ;(err as any).rawResponsePayload = JSON.stringify(payload, null, 2)
       throw err
     }
 
-    const images: string[] = []
-    for (const url of [...dataUrls, ...httpUrls]) {
-      images.push(await fetchImageUrlAsDataUrl(url, mime, controller.signal))
-    }
     return { images }
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+// 原生 generateContent 端点:baseUrl 形如 https://host/v1,去掉末尾 /v1 后拼 /v1beta/models/{model}:generateContent
+function buildGenerateContentUrl(
+  baseUrl: string,
+  model: string,
+  proxyConfig: ReturnType<typeof readClientDevProxyConfig>,
+  useApiProxy: boolean,
+): string {
+  const endpointPath = `v1beta/models/${encodeURIComponent(model)}:generateContent`
+  if (useApiProxy) {
+    return `${proxyConfig?.prefix ?? '/api-proxy'}/${endpointPath}`
+  }
+  const trimmed = baseUrl.trim().replace(/\/+$/, '')
+  const origin = trimmed.replace(/\/v1$/i, '')
+  return `${origin}/${endpointPath}`
+}
+
+// data URL → Gemini 原生 inline_data part
+function createInlineDataPart(dataUrl: string): Record<string, unknown> | null {
+  const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/)
+  if (!match) return null
+  return { inline_data: { mime_type: match[1], data: match[2] } }
 }
 
 async function callCustomHttpImageApi(opts: CallApiOptions, profile: ApiProfile, customProvider: CustomProviderDefinition): Promise<CallApiResult> {

@@ -254,3 +254,29 @@ export function calculateImageSize(tier: SizeTier, ratio: string) {
   if (bestPixels === 0) return null
   return `${bestWidth}x${bestHeight}`
 }
+
+// Gemini 原生生图(generateContent)支持的 imageConfig.aspectRatio 取值
+const GEMINI_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']
+const GEMINI_ASPECT_TOLERANCE = 0.025
+
+/**
+ * 由像素尺寸(如 1024x1536)推导 Gemini aspectRatio("2:3");auto 或无法匹配时返回 null(用模型默认画幅)。
+ */
+export function aspectRatioForGemini(size: string): string | null {
+  if (!size || size === 'auto') return null
+  const match = size.trim().match(SIZE_PATTERN)
+  if (!match) return null
+
+  const width = Number(match[1])
+  const height = Number(match[2])
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+
+  const target = width / height
+  let best: { label: string, delta: number } | null = null
+  for (const label of GEMINI_ASPECT_RATIOS) {
+    const [ratioWidth, ratioHeight] = label.split(':').map(Number)
+    const delta = Math.abs(target - ratioWidth / ratioHeight) / (ratioWidth / ratioHeight)
+    if (!best || delta < best.delta) best = { label, delta }
+  }
+  return best && best.delta <= GEMINI_ASPECT_TOLERANCE ? best.label : null
+}
